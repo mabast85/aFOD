@@ -29,8 +29,6 @@ def get_sh(theta, phi, L=0, c='even', m='sd'):
         m, l = np.concatenate([[(m, l) for m in range(-l, l+1)] for l in range(0, L+1)], axis=0).T
         
     sh = np.zeros((n_points, n_coeffs), dtype=float)
-    print(m.shape)
-
     c1 = np.sqrt((2*l + 1) / (4 * np.pi))
     c2 = np.sqrt(factorial(l - np.abs(m)) / factorial(l + np.abs(m)))
     Lml = lpmv(np.abs(m[np.newaxis, :]), l[np.newaxis, :], np.cos(phi[:, np.newaxis]))
@@ -41,6 +39,10 @@ def get_sh(theta, phi, L=0, c='even', m='sd'):
     sh[:, m > 0] = np.sqrt(2) * np.real(Yml[:, m > 0])
 
     return sh
+
+
+def get_delta(theta, phi, order):
+    return get_sh(theta, phi, order)
 
 
 def get_rotation(v1, v2):
