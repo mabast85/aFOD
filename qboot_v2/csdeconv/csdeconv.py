@@ -1,12 +1,10 @@
 import numpy as np
 import nibabel as nib
 from qboot_v2.utils import math as qbm
-from cvxpy import Constant, Minimize, Problem, Variable, quad_form
-# from quadprog import solve_qp
-# from cvxopt import matrix, spmatrix
-# from cvxopt.solvers import options, qp
+from cvxopt import matrix, spmatrix
+from cvxopt.solvers import options, qp
 
-# options['show_progress'] = False  # disable cvxopt output
+options['show_progress'] = False  # disable cvxopt output
 
 
 # Response function class
@@ -96,54 +94,34 @@ def get_csd_matrix(bvecs, response, max_order):
 
 
 def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order):
-    bvals = np.genfromtxt(bvals_file, dtype=float)
-    bvecs = np.genfromtxt(bvecs_file, dtype=float)
+    # Load data
+    bvals = np.genfromtxt(bvals_file, dtype=np.float32)
+    bvecs = np.genfromtxt(bvecs_file, dtype=np.float32)
     mask = (nib.load(mask_file)).get_data()
-
+    data_obj = nib.load(data_file)
+    data = data_obj.get_data()
     ii = np.where(mask)
-    data = (nib.load(data_file)).get_data()
+
+    # Get CSD matrices
     C = get_csd_matrix(bvecs[:, bvals > 100], response, max_order)
-    B = np.genfromtxt('/Users/matteob/qboot_v2/qboot_v2/utils/ico_5.txt', dtype=float)
+    H = np.dot(C.T, C)
+    B = np.genfromtxt('/Users/matteob/qboot_v2/qboot_v2/utils/ico_5.txt', dtype=np.float32)
     B_sph = qbm.cart2sph(B[:, 0], B[:, 1], B[:, 2])
     B_sh = qbm.get_sh(B_sph[:, 1], B_sph[:, 2], max_order)
-    H = np.dot(C.T, C)
-    fod = np.zeros((116, 116, 76, B_sh.shape[1]), dtype=float)
-    n = B_sh.shape[1]
-    _fod = Variable(n)
-    H_const = Constant(H)  # see http://www.cvxpy.org/en/latest/faq/
-    constraints = []
-    constraints.append(-B_sh * _fod <= 0)
-    n_vox = np.count_nonzero(mask)
-    v_count = 0
-    print('USING CVXPY')
-    for x, y, z in zip(*ii):
-        v_count = v_count + 1
-        if np.mod(v_count, 1000) == 0:
-            print(str(np.round(100 * v_count / n_vox)) + ' fitted voxels')
-            
+    fod = np.zeros(list(mask.shape) + [B_sh.shape[1]], dtype=np.float32)
+    csdeconv_fit(fod, data, mask, ii, bvals, H, C, B_sh)
+    nib.Nifti1Image(fod, None, data_obj.header).to_filename('/Users/matteob/Desktop/fslcourse_update/fsl_course_data/fdt1/subj1/csd_test.nii.gz')
+
+
+def csdeconv_fit(fod, data, mask, vox_list, bvals, H, C, B):
+    for x, y, z in zip(*vox_list):
         s = data[x, y, z, bvals >= 100]
         f = np.dot(-C.T, s)
-
-        # Using CVXPY
-        
-        objective = Minimize(0.5 * quad_form(_fod, H_const) + f * _fod)
-        prob = Problem(objective, constraints)
-        result = prob.solve(solver='SCS')
-        fod[x, y, z, :] = (np.array(_fod.value)).reshape((n,))
-
-        # Using quadprog
-        # print(H.shape)
-        # np.savetxt('/Users/matteob/Desktop/fslcourse_update/fsl_course_data/fdt1/subj1/H.txt', H, fmt='%.5f', delimiter=' ')
-        # fod[x, y, z, :] = solve_qp(0.5 * (H + H.T), f, B_sh.T, np.zeros(252), 0)[0]
-
+        h = matrix(np.zeros(252))
         # Using cvxopt
-        # args = [matrix(0.5 * (H + H.T)), matrix(f)]
-        # args.extend([matrix(-B_sh), matrix(np.zeros(252))])
-        # sol = qp(*args)
-        # if 'optimal' not in sol['status']:
-        #     print('ARGH!')
-        # fod[x, y, z, :] = np.array(sol['x']).reshape((f.shape[0],))
-
-        # fod[x, y, z, :] = qc_solver(H, f, B_sh, np.zeros(B_sh.shape[0], dtype=float))
-
-    nib.Nifti1Image(fod, np.eye(4)).to_filename('/Users/matteob/Desktop/fslcourse_update/fsl_course_data/fdt1/subj1/csd_test.nii.gz')
+        args = [matrix(H), matrix(f)]  # Enforce symmetry on H
+        args.extend([matrix(-B), h])
+        sol = qp(*args)
+        if 'optimal' not in sol['status']:
+            print('Solution not found')
+        fod[x, y, z, :] = np.array(sol['x']).reshape((f.shape[0],))
