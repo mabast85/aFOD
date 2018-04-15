@@ -87,7 +87,7 @@ class Response(object):
         np.savetxt(fname, self.coefficients[np.where(delta[0, :])], fmt='%.5f', delimiter=' ')
 
 
-def get_csd_matrix(bvecs, response, max_order):
+def get_csd_matrix(bvecs, response, max_order, sym=True):
     bvecs_sph = qbm.cart2sph(bvecs[0, :], bvecs[1, :], bvecs[2, :])
     bvecs_sh = qbm.get_sh(bvecs_sph[:, 1], bvecs_sph[:, 2], max_order)
     rh = response.get_rh()
@@ -95,8 +95,14 @@ def get_csd_matrix(bvecs, response, max_order):
         rh = np.append(rh, np.ones((max_order - response.max_order)/2) * 1E-16)
     m, R = np.concatenate([[(m, rh[int(l/2)]) for m in range(-l, l+1)] for l in range(0, max_order+1, 2)], axis=0).T
     R = np.diag(R)
-    return np.dot(bvecs_sh, R)
-
+    C = np.dot(bvecs_sh, R)
+    if sym:
+        return C
+    else:
+        m, l = np.concatenate([[(m, l) for m in range(-l, l+1)] for l in range(0, max_order+1)], axis=0).T
+        a = (np.diag((np.mod(l, 2) == 0))[np.mod(l, 2) == 0, :]).astype(int)
+        return np.dot(C, a)
+        
 
 def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order):
     # Load data
