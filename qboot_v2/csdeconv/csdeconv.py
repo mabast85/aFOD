@@ -1,3 +1,5 @@
+import ctypes
+import multiprocessing as mp
 import numpy as np
 import nibabel as nib
 from qboot_v2.utils import math as qbm
@@ -5,6 +7,9 @@ from cvxopt import matrix, spmatrix
 from cvxopt.solvers import options, qp
 
 options['show_progress'] = False  # disable cvxopt output
+
+# number of processes to parallelise csdeconv across
+nprocs = 16
 
 
 # Response function class
@@ -100,6 +105,9 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order):
     mask = (nib.load(mask_file)).get_data()
     data_obj = nib.load(data_file)
     data = data_obj.get_data()
+
+    #mask[:, :, :40] = 0
+    #mask[:, :, 50:] = 0
     ii = np.where(mask)
 
     # Get CSD matrices
@@ -109,11 +117,47 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order):
     B_sph = qbm.cart2sph(B[:, 0], B[:, 1], B[:, 2])
     B_sh = qbm.get_sh(B_sph[:, 1], B_sph[:, 2], max_order)
     fod = np.zeros(list(mask.shape) + [B_sh.shape[1]], dtype=np.float32)
-    csdeconv_fit(fod, data, mask, ii, bvals, H, C, B_sh)
-    nib.Nifti1Image(fod, None, data_obj.header).to_filename('/Users/matteob/Desktop/fslcourse_update/fsl_course_data/fdt1/subj1/csd_test.nii.gz')
+
+    # create shared memory arrays
+    shared_fod = mp.RawArray(ctypes.c_float, fod.size)
+    shared_data = mp.RawArray(ctypes.c_float, data.size)
+
+    fod_ptr = np.ctypeslib.as_array(shared_fod).reshape(fod.shape)
+    data_ptr = np.ctypeslib.as_array(shared_data).reshape(data.shape)
+
+    data_ptr[:] = data
+    csdeconv_fit.shared_fod = shared_fod
+    csdeconv_fit.shared_data = shared_data
+
+    # Chunk up indices
+    x, y, z = ii
+    nvox = len(x)
+    chunk_size = nvox / nprocs
+    chunk_end = chunk_size * nprocs
+
+    iixs = [x[i * chunk_size:i * chunk_size + chunk_size] for i in range(nprocs)] + [x[chunk_end:]]
+    iiys = [y[i * chunk_size:i * chunk_size + chunk_size] for i in range(nprocs)] + [y[chunk_end:]]
+    iizs = [z[i * chunk_size:i * chunk_size + chunk_size] for i in range(nprocs)] + [z[chunk_end:]]
+
+    # create arguments for each child process
+    args = [((xs, ys, zs), fod.shape, data.shape, bvals, H, C, B_sh) 
+            for xs, ys, zs in zip(iixs, iiys, iizs)]
+
+    # Create child processes
+    pool = mp.Pool(processes=nprocs)
+
+    pool.starmap(csdeconv_fit, args)
+
+    nib.Nifti1Image(fod_ptr, None, data_obj.header).to_filename('/Users/matteob/Desktop/fslcourse_update/fsl_course_data/fdt1/subj1/csd_test.nii.gz')
 
 
-def csdeconv_fit(fod, data, mask, vox_list, bvals, H, C, B):
+def csdeconv_fit(vox_list, fod_shape, data_shape, bvals, H, C, B):
+    fod = csdeconv_fit.shared_fod
+    data = csdeconv_fit.shared_data
+
+    fod = np.ctypeslib.as_array(fod).reshape(fod_shape)
+    data = np.ctypeslib.as_array(data).reshape(data_shape)
+
     for x, y, z in zip(*vox_list):
         s = data[x, y, z, bvals >= 100]
         f = np.dot(-C.T, s)
