@@ -2,6 +2,7 @@ import ctypes
 import multiprocessing as mp
 import numpy as np
 import nibabel as nib
+import itertools
 from qboot_v2.utils import math as qbm
 from cvxopt import matrix, spmatrix
 from cvxopt.solvers import options, qp
@@ -102,9 +103,22 @@ def get_csd_matrix(bvecs, response, max_order, sym=True):
         m, l = np.concatenate([[(m, l) for m in range(-l, l+1)] for l in range(0, max_order+1)], axis=0).T
         a = (np.diag((np.mod(l, 2) == 0))[np.mod(l, 2) == 0, :]).astype(int)
         return np.dot(C, a)
-        
 
-def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order):
+
+def get_weights(vertices, sigma):
+    neighs = np.array(list(itertools.product([-1, 0, 1], repeat=3)))
+    neighs = np.delete(neighs, 13, 0)   # Remove [0, 0, 0]
+    d = np.linalg.norm(neighs, ord=2, axis=1)
+    deg_mat = np.arccos(np.dot(neighs / d[:, np.newaxis], vertices.T))
+    weights = np.exp(-deg_mat / np.deg2rad(sigma))
+    weights[deg_mat > np.deg2rad(60)] = 0   # Do not consider vertices that are not too collinear
+    weights = weights / d[:, np.newaxis]    # Account for distance
+    weights = weights / np.sum(weights, axis=0)[np.newaxis, :]   # Divide by the vertex-wise weight sum
+    weights[np.isnan(weights)] = 0  # Check for nans
+    return weights
+
+
+def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order, sym=True):
     # Load data
     bvals = np.genfromtxt(bvals_file, dtype=np.float32)
     bvecs = np.genfromtxt(bvecs_file, dtype=np.float32)
@@ -117,13 +131,13 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order):
     ii = np.where(mask)
 
     # Get CSD matrices
-    C = get_csd_matrix(bvecs[:, bvals > 100], response, max_order)
+    C = get_csd_matrix(bvecs[:, bvals > 100], response, max_order, sym)
     H = np.dot(C.T, C)
     B = np.genfromtxt('/Users/matteob/qboot_v2/qboot_v2/utils/ico_5.txt', dtype=np.float32)
     B_sph = qbm.cart2sph(B[:, 0], B[:, 1], B[:, 2])
     B_sh = qbm.get_sh(B_sph[:, 1], B_sph[:, 2], max_order)
     fod = np.zeros(list(mask.shape) + [B_sh.shape[1]], dtype=np.float32)
-
+    '''
     # create shared memory arrays
     shared_fod = mp.RawArray(ctypes.c_float, fod.size)
     shared_data = mp.RawArray(ctypes.c_float, data.size)
@@ -155,7 +169,7 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order):
     pool.starmap(csdeconv_fit, args)
 
     nib.Nifti1Image(fod_ptr, None, data_obj.header).to_filename('/Users/matteob/Desktop/fslcourse_update/fsl_course_data/fdt1/subj1/csd_test.nii.gz')
-
+    '''
 
 def csdeconv_fit(vox_list, fod_shape, data_shape, bvals, H, C, B):
     fod = csdeconv_fit.shared_fod
