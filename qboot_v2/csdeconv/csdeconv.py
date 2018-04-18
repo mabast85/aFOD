@@ -111,14 +111,40 @@ def get_weights(vertices, sigma):
     d = np.linalg.norm(neighs, ord=2, axis=1)
     deg_mat = np.arccos(np.dot(neighs / d[:, np.newaxis], vertices.T))
     weights = np.exp(-deg_mat / np.deg2rad(sigma))
-    weights[deg_mat > np.deg2rad(60)] = 0   # Do not consider vertices that are not too collinear
+    weights[deg_mat > np.deg2rad(60)] = 0   # Do not consider vertices that are not aligned with any neighbouring voxel
     weights = weights / d[:, np.newaxis]    # Account for distance
     weights = weights / np.sum(weights, axis=0)[np.newaxis, :]   # Divide by the vertex-wise weight sum
     weights[np.isnan(weights)] = 0  # Check for nans
     return weights
 
 
-def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order, sym=True):
+def sdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order, sym=False, out_file=None):
+    # Load data
+    bvals = np.genfromtxt(bvals_file, dtype=np.float32)
+    bvecs = np.genfromtxt(bvecs_file, dtype=np.float32)
+    mask = (nib.load(mask_file)).get_data()
+    data_obj = nib.load(data_file)
+    data = data_obj.get_data()
+
+    # Get convolution matrix
+    C = get_csd_matrix(bvecs[:, bvals > 100], response, max_order, sym)
+    
+    # Initialise output fod matrix
+    fod = np.zeros(list(mask.shape) + [C.shape[1]], dtype=np.float32)
+
+    ii = np.where(mask)
+    xs, ys, zs = ii
+    for x, y, z in zip(xs, ys, zs):
+        s = data[x, y, z, bvals >= 100]
+        fod[x, y, z, :] = np.linalg.lstsq(C, s)[0]
+
+    if out_file is not None:
+        nib.Nifti1Image(fod, None, data_obj.header).to_filename(out_file)
+
+    return fod
+    
+
+def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order, sym=False, l=0.1):
     # Load data
     bvals = np.genfromtxt(bvals_file, dtype=np.float32)
     bvecs = np.genfromtxt(bvecs_file, dtype=np.float32)
@@ -131,12 +157,19 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order, 
     ii = np.where(mask)
 
     # Get CSD matrices
-    C = get_csd_matrix(bvecs[:, bvals > 100], response, max_order, sym)
-    H = np.dot(C.T, C)
     B = np.genfromtxt('/Users/matteob/qboot_v2/qboot_v2/utils/ico_5.txt', dtype=np.float32)
     B_sph = qbm.cart2sph(B[:, 0], B[:, 1], B[:, 2])
-    B_sh = qbm.get_sh(B_sph[:, 1], B_sph[:, 2], max_order)
+    C = get_csd_matrix(bvecs[:, bvals > 100], response, max_order, sym)
+    if sym is False:
+        B_sh = qbm.get_sh(B_sph[:, 1], B_sph[:, 2], max_order, c='all')
+        l = l * C.shape[0] * (response.get_rh())[0] / B.shape[0]
+        C = np.concatenate((C, l*B_sh), axis=0)
+    else:
+        B_sh = qbm.get_sh(B_sph[:, 1], B_sph[:, 2], max_order)
+    H = np.dot(C.T, C)
+    
     fod = np.zeros(list(mask.shape) + [B_sh.shape[1]], dtype=np.float32)
+    
     '''
     # create shared memory arrays
     shared_fod = mp.RawArray(ctypes.c_float, fod.size)
