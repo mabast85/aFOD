@@ -105,7 +105,7 @@ def get_csd_matrix(bvecs, response, max_order, sym=True):
         return np.dot(C, a)
 
 
-def get_weights(vertices, sigma):
+def get_weights(vertices, sigma=40):
     neighs = np.array(list(itertools.product([-1, 0, 1], repeat=3)))
     neighs = np.delete(neighs, 13, 0)   # Remove [0, 0, 0]
     d = np.linalg.norm(neighs, ord=2, axis=1)
@@ -154,6 +154,7 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order, 
 
     #mask[:, :, :40] = 0
     #mask[:, :, 50:] = 0
+    mask[:, :, 0] = 0
     ii = np.where(mask)
 
     # Get CSD matrices
@@ -162,19 +163,22 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order, 
     C = get_csd_matrix(bvecs[:, bvals > 100], response, max_order, sym)
     if sym is False:
         B_sh = qbm.get_sh(B_sph[:, 1], B_sph[:, 2], max_order, c='all')
+        B_neg_sph = qbm.cart2sph(-B[:, 0], -B[:, 1], -B[:, 2])
+        B_neg_sh = qbm.get_sh(B_neg_sph[:, 1], B_neg_sph[:, 2], max_order, c='all')
         l = l * C.shape[0] * (response.get_rh())[0] / B.shape[0]
         C = np.concatenate((C, l*B_sh), axis=0)
+        w = get_weights(B)
+        prev_fod = sdeconv(response, data_file, mask_file,  bvals_file, bvecs_file, max_order, sym=sym)
     else:
         B_sh = qbm.get_sh(B_sph[:, 1], B_sph[:, 2], max_order)
     H = np.dot(C.T, C)
     
     fod = np.zeros(list(mask.shape) + [B_sh.shape[1]], dtype=np.float32)
     
-    '''
     # create shared memory arrays
     shared_fod = mp.RawArray(ctypes.c_float, fod.size)
     shared_data = mp.RawArray(ctypes.c_float, data.size)
-
+    
     fod_ptr = np.ctypeslib.as_array(shared_fod).reshape(fod.shape)
     data_ptr = np.ctypeslib.as_array(shared_data).reshape(data.shape)
 
@@ -182,6 +186,12 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order, 
     csdeconv_fit.shared_fod = shared_fod
     csdeconv_fit.shared_data = shared_data
 
+    if sym is False:
+        shared_prev_fod = mp.RawArray(ctypes.c_float, prev_fod.size)
+        prev_fod_ptr = np.ctypeslib.as_array(shared_prev_fod).reshape(prev_fod.shape)
+        prev_fod_ptr[:] = prev_fod
+        csdeconv_fit.shared_prev_fod = shared_prev_fod
+    
     # Chunk up indices
     x, y, z = ii
     nvox = len(x)
@@ -193,7 +203,7 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order, 
     iizs = [z[i * chunk_size:i * chunk_size + chunk_size] for i in range(nprocs)] + [z[chunk_end:]]
 
     # create arguments for each child process
-    args = [((xs, ys, zs), fod.shape, data.shape, bvals, H, C, B_sh) 
+    args = [((xs, ys, zs), fod.shape, data.shape, bvals, H, C, B_sh, sym, B_neg_sh, w, l) 
             for xs, ys, zs in zip(iixs, iiys, iizs)]
 
     # Create child processes
@@ -201,19 +211,29 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order, 
 
     pool.starmap(csdeconv_fit, args)
 
-    nib.Nifti1Image(fod_ptr, None, data_obj.header).to_filename('/Users/matteob/Desktop/fslcourse_update/fsl_course_data/fdt1/subj1/csd_test.nii.gz')
-    '''
-
-def csdeconv_fit(vox_list, fod_shape, data_shape, bvals, H, C, B):
+    nib.Nifti1Image(fod_ptr, None, data_obj.header).to_filename('/Users/matteob/Desktop/fslcourse_update/fsl_course_data/fdt1/subj1/acsd_test.nii.gz')
+    
+    
+def csdeconv_fit(vox_list, fod_shape, data_shape, bvals, H, C, B, sym, B_neg, w, l):
     fod = csdeconv_fit.shared_fod
     data = csdeconv_fit.shared_data
+    prev_fod = csdeconv_fit.shared_prev_fod
 
     fod = np.ctypeslib.as_array(fod).reshape(fod_shape)
     data = np.ctypeslib.as_array(data).reshape(data_shape)
+    prev_fod = np.ctypeslib.as_array(prev_fod).reshape(fod_shape)
+    
+    neighs = np.array(list(itertools.product([-1, 0, 1], repeat=3)))
+    neighs = np.delete(neighs, 13, 0)   # Remove [0, 0, 0]
 
     for x, y, z in zip(*vox_list):
         s = data[x, y, z, bvals >= 100]
-        f = np.dot(-C.T, s)
+        if sym:
+            f = np.dot(-C.T, s)
+        else:
+            fNeighs = prev_fod[x+neighs[:, 0], y+neighs[:, 1], z+neighs[:, 2]]
+            n_fod = l * np.diag(np.dot(np.dot(B_neg, fNeighs.T), w))
+            f = np.dot(-C.T, np.concatenate((s, n_fod)))
         h = matrix(np.zeros(252))
         # Using cvxopt
         args = [matrix(H), matrix(f)]  # Enforce symmetry on H
