@@ -4,13 +4,14 @@ import numpy as np
 import nibabel as nib
 import itertools
 from qboot_v2.utils import math as qbm
+from qboot_v2.utils import utils
 from cvxopt import matrix, spmatrix
 from cvxopt.solvers import options, qp
 
 options['show_progress'] = False  # disable cvxopt output
 
 # number of processes to parallelise csdeconv across
-nprocs = 16
+nprocs = mp.cpu_count()
 
 
 # Response function class
@@ -23,47 +24,74 @@ class Response(object):
 
     def __init__(self, coefficients, max_order):
         '''Creates a new response function on the
-        coefficients and max order'''
+        coefficients and max order
+        '''
         self.coefficients = coefficients
         self.max_order = max_order
         
     @classmethod
-    def get_response(cls, data_file, mask_file, bvals_file, bvecs_file, max_order, dti_basename=None, normalize=False):
+    def get_response(cls, data_file, mask_file, bvals_file, bvecs_file, max_order, bval=None, dti_basename=None, normalize=False):
         '''Computes the response function coefficients and signal
-        from a set of voxels in mask'''
-
-        resp = 0
-
+        from a set of voxels in mask
+        '''
         if dti_basename is None:
             raise ValueError(dti_basename + ' does not appear to be a valid dtifit basename')
         else:
-            dti_v1 = (nib.load(dti_basename + '_V1.nii.gz')).get_data()
+            dti_V1 = (nib.load(dti_basename + '_V1.nii.gz')).get_data()
         
         bvals = np.genfromtxt(bvals_file, dtype=float)
         bvecs = np.genfromtxt(bvecs_file, dtype=float)
-        mask = (nib.load(mask_file)).get_data()
-        ii = np.where(mask)
-        print('Found ' + str(np.count_nonzero(mask)) + ' masked voxels')
-        
         data = (nib.load(data_file)).get_data()
-        for x, y, z in zip(*ii):
-            R = qbm.get_rotation(dti_v1[x, y, z, :], [0, 0, 1])
-            rotated_bvecs = np.dot(R.T, bvecs[:, bvals > 100])
-            rotated_bvecs_sph = qbm.cart2sph(rotated_bvecs[0, :], rotated_bvecs[1, :], rotated_bvecs[2, :])
-            rotated_bvecs_sh = qbm.get_sh(rotated_bvecs_sph[:, 1], rotated_bvecs_sph[:, 2], max_order)
-            s = data[x, y, z, bvals >= 100]
-            s0 = np.mean(data[x, y, z, bvals < 100])
-            if normalize:
-                resp = resp + np.linalg.lstsq(rotated_bvecs_sh, s / s0)[0]
-            else:
-                resp = resp + np.linalg.lstsq(rotated_bvecs_sh, s)[0]
-        
-        resp /= np.count_nonzero(mask)
-        return cls(resp, max_order)
+        mask = (nib.load(mask_file)).get_data()
+        vox_list = np.where(mask)
+        print('Found ' + str(np.count_nonzero(mask)) + ' masked voxels')
 
+        r_bvals = utils.round_bvals(bvals)
+        if bval is None:
+            u_bvals, counts = np.unique(r_bvals.astype(int), return_counts=True)
+            print('Found ' + str(u_bvals.size) + ' shells')
+        else:
+            u_bvals = np.array(bval)
+
+        count_b = 0
+        coefficients = np.zeros((u_bvals.size, (max_order+1)*(max_order+2)/2))
+        for i in np.arange(0, u_bvals.size):
+            if u_bvals.size == 1:
+                b = u_bvals
+            else:
+                b = u_bvals[i]
+            if b <= 100:
+                rot_bvecs_sph = qbm.cart2sph(bvecs[0, r_bvals > 100], bvecs[1, r_bvals > 100], bvecs[2, r_bvals > 100])
+                rot_bvecs_sh = qbm.get_sh(rot_bvecs_sph[:, 1], rot_bvecs_sph[:, 2], max_order)
+                s0 = np.mean(data[:, :, :, bvals < 100], axis=3)
+                s = np.ones(rot_bvecs_sph.shape[0]) * np.mean(s0[mask > 0])
+                if normalize:
+                    coefficients[count_b, :] = coefficients[count_b, :] + np.linalg.lstsq(rot_bvecs_sh, s / np.mean(s0[mask > 0]))[0]
+                else:
+                    coefficients[count_b, :] = coefficients[count_b, :] + np.linalg.lstsq(rot_bvecs_sh, s)[0]
+            else:
+                count = 0
+                for x, y, z in zip(*vox_list):
+                    count += 1
+                    R = qbm.get_rotation(dti_V1[x, y, z, :], [0, 0, 1])
+                    rot_bvecs = np.dot(R.T, bvecs[:, r_bvals == b])
+                    rot_bvecs_sph = qbm.cart2sph(rot_bvecs[0, :], rot_bvecs[1, :], rot_bvecs[2, :])
+                    rot_bvecs_sh = qbm.get_sh(rot_bvecs_sph[:, 1], rot_bvecs_sph[:, 2], max_order)
+                    s = data[x, y, z, r_bvals == b]
+                    if normalize:
+                        s0 = np.mean(data[x, y, z, bvals < 100])
+                        coefficients[count_b, :] = coefficients[count_b, :] + np.linalg.lstsq(rot_bvecs_sh, s / s0)[0]
+                    else:
+                        coefficients[count_b, :] = coefficients[count_b, :] + np.linalg.lstsq(rot_bvecs_sh, s)[0]
+                coefficients[count_b, :] /= count
+            count_b += 1
+                
+        return cls(coefficients, max_order)
+        
+    # Rotational harmonics
     def get_rh(self):
         delta = qbm.get_delta(np.array([0]), np.array([0]), self.max_order)
-        return self.coefficients[np.where(delta[0, :])] / delta[np.where(delta)]
+        return self.coefficients[:, delta[0, :] != 0] / delta[delta != 0]
 
     # I/O
     @classmethod
@@ -88,15 +116,26 @@ class Response(object):
         np.savetxt(fname, self.coefficients[np.where(delta[0, :])], fmt='%.5f', delimiter=' ')
 
 
-def get_csd_matrix(bvecs, response, max_order, sym=True):
+def get_csd_matrix(bvecs, bvals, response, max_order, sym=True):
+    r_bvals = utils.round_bvals(bvals)
+    u_bvals, counts = np.unique(r_bvals.astype(int), return_counts=True)
+    if u_bvals.size != response.coefficients.shape[0]:
+        raise ValueError('Number of shells does not appear to match the number of response functions')
     bvecs_sph = qbm.cart2sph(bvecs[0, :], bvecs[1, :], bvecs[2, :])
     bvecs_sh = qbm.get_sh(bvecs_sph[:, 1], bvecs_sph[:, 2], max_order)
     rh = response.get_rh()
     if response.max_order < max_order:
-        rh = np.append(rh, np.ones((max_order - response.max_order)/2) * 1E-16)
-    m, R = np.concatenate([[(m, rh[int(l/2)]) for m in range(-l, l+1)] for l in range(0, max_order+1, 2)], axis=0).T
-    R = np.diag(R)
-    C = np.dot(bvecs_sh, R)
+        rh = np.append(rh, np.ones((rh.shape[0], (max_order - response.max_order)/2)) * 1E-16, axis=1)
+    
+    C = np.zeros(bvecs_sh.shape)
+    for i in np.arange(0, u_bvals.size):
+        if u_bvals.size == 1:
+            b = u_bvals
+        else:
+            b = u_bvals[i]
+        m, R = np.concatenate([[(m, rh[i, int(l/2)]) for m in range(-l, l+1)] for l in range(0, max_order+1, 2)], axis=0).T
+        R = np.diag(R)
+        C[r_bvals == b, :] = np.dot(bvecs_sh[r_bvals == b, :], R)
     if sym:
         return C
     else:
@@ -127,7 +166,7 @@ def sdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order, s
     data = data_obj.get_data()
 
     # Get convolution matrix
-    C = get_csd_matrix(bvecs[:, bvals > 100], response, max_order, sym)
+    C = get_csd_matrix(bvecs, bvals, response, max_order, sym)
     
     # Initialise output fod matrix
     fod = np.zeros(list(mask.shape) + [C.shape[1]], dtype=np.float32)
@@ -135,7 +174,7 @@ def sdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order, s
     ii = np.where(mask)
     xs, ys, zs = ii
     for x, y, z in zip(xs, ys, zs):
-        s = data[x, y, z, bvals >= 100]
+        s = data[x, y, z, :]
         fod[x, y, z, :] = np.linalg.lstsq(C, s)[0]
 
     if out_file is not None:
@@ -160,12 +199,12 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order, 
     # Get CSD matrices
     B = np.genfromtxt('/Users/matteob/qboot_v2/qboot_v2/utils/ico_5.txt', dtype=np.float32)
     B_sph = qbm.cart2sph(B[:, 0], B[:, 1], B[:, 2])
-    C = get_csd_matrix(bvecs[:, bvals > 100], response, max_order, sym)
+    C = get_csd_matrix(bvecs, bvals, response, max_order, sym)
     if sym is False:
         B_sh = qbm.get_sh(B_sph[:, 1], B_sph[:, 2], max_order, c='all')
         B_neg_sph = qbm.cart2sph(-B[:, 0], -B[:, 1], -B[:, 2])
         B_neg_sh = qbm.get_sh(B_neg_sph[:, 1], B_neg_sph[:, 2], max_order, c='all')
-        l = l * C.shape[0] * (response.get_rh())[0] / B.shape[0]
+        l = l * C.shape[0] * (response.get_rh())[0, 0] / B.shape[0]
         C = np.concatenate((C, l*B_sh), axis=0)
         w = get_weights(B)
         prev_fod = sdeconv(response, data_file, mask_file,  bvals_file, bvecs_file, max_order, sym=sym)
@@ -203,31 +242,35 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order, 
     iizs = [z[i * chunk_size:i * chunk_size + chunk_size] for i in range(nprocs)] + [z[chunk_end:]]
 
     # create arguments for each child process
-    args = [((xs, ys, zs), fod.shape, data.shape, bvals, H, C, B_sh, sym, B_neg_sh, w, l) 
-            for xs, ys, zs in zip(iixs, iiys, iizs)]
+    if sym:
+        args = [((xs, ys, zs), fod.shape, data.shape, bvals, H, C, B_sh, sym) 
+                for xs, ys, zs in zip(iixs, iiys, iizs)]
+    else:
+        args = [((xs, ys, zs), fod.shape, data.shape, bvals, H, C, B_sh, sym, B_neg_sh, w, l) 
+                for xs, ys, zs in zip(iixs, iiys, iizs)]
 
     # Create child processes
     pool = mp.Pool(processes=nprocs)
 
     pool.starmap(csdeconv_fit, args)
 
-    nib.Nifti1Image(fod_ptr, None, data_obj.header).to_filename('/Users/matteob/Desktop/fslcourse_update/fsl_course_data/fdt1/subj1/acsd_test.nii.gz')
+    nib.Nifti1Image(fod_ptr, None, data_obj.header).to_filename('/Users/matteob/Desktop/fslcourse_update/fsl_course_data/fdt1/subj1/acsd_test_MS.nii.gz')
     
     
-def csdeconv_fit(vox_list, fod_shape, data_shape, bvals, H, C, B, sym, B_neg, w, l):
+def csdeconv_fit(vox_list, fod_shape, data_shape, bvals, H, C, B, sym, B_neg=None, w=None, l=None):
     fod = csdeconv_fit.shared_fod
     data = csdeconv_fit.shared_data
-    prev_fod = csdeconv_fit.shared_prev_fod
-
+    
     fod = np.ctypeslib.as_array(fod).reshape(fod_shape)
     data = np.ctypeslib.as_array(data).reshape(data_shape)
-    prev_fod = np.ctypeslib.as_array(prev_fod).reshape(fod_shape)
-    
-    neighs = np.array(list(itertools.product([-1, 0, 1], repeat=3)))
-    neighs = np.delete(neighs, 13, 0)   # Remove [0, 0, 0]
+    if sym is False:
+        prev_fod = csdeconv_fit.shared_prev_fod
+        prev_fod = np.ctypeslib.as_array(prev_fod).reshape(fod_shape)
+        neighs = np.array(list(itertools.product([-1, 0, 1], repeat=3)))
+        neighs = np.delete(neighs, 13, 0)   # Remove [0, 0, 0]
 
     for x, y, z in zip(*vox_list):
-        s = data[x, y, z, bvals >= 100]
+        s = data[x, y, z, :]
         if sym:
             f = np.dot(-C.T, s)
         else:
