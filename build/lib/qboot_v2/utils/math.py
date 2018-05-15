@@ -14,6 +14,16 @@ def cart2sph(x, y, z):
     
     return res
 
+def sph2cart(r, t, p):
+    
+    res = np.zeros((r.size, 3), dtype=float)
+    r_sinp = r * np.sin(p)
+    res[:, 0] = r_sinp * np.cos(t)    # x
+    res[:, 1] = r_sinp * np.sin(t)    # y
+    res[:, 2] = r * np.cos(p)         # z
+
+    return res
+
 
 def get_sh(theta, phi, L=0, c='even', m='sd'):
 
@@ -28,7 +38,7 @@ def get_sh(theta, phi, L=0, c='even', m='sd'):
         n_coeffs = np.sum(np.arange(1, 2*(L+1), 2))
         m, l = np.concatenate([[(m, l) for m in range(-l, l+1)] for l in range(0, L+1)], axis=0).T
         
-    sh = np.zeros((n_points, n_coeffs), dtype=float)
+    sh = np.zeros((int(n_points), int(n_coeffs)), dtype=float)
     c1 = np.sqrt((2*l + 1) / (4 * np.pi))
     c2 = np.sqrt(factorial(l - np.abs(m)) / factorial(l + np.abs(m)))
     Lml = lpmv(np.abs(m[np.newaxis, :]), l[np.newaxis, :], np.cos(phi[:, np.newaxis]))

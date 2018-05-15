@@ -14,6 +14,16 @@ def cart2sph(x, y, z):
     
     return res
 
+def sph2cart(r, t, p):
+    
+    res = np.zeros((r.size, 3), dtype=float)
+    r_sinp = r * np.sin(p)
+    res[:, 0] = r_sinp * np.cos(t)    # x
+    res[:, 1] = r_sinp * np.sin(t)    # y
+    res[:, 2] = r * np.cos(p)         # z
+
+    return res
+
 
 def get_sh(theta, phi, L=0, c='even', m='sd'):
 
