@@ -51,10 +51,12 @@ def get_peaks(sphere, fod_file, mask_file, max_order, n=3, sym=True, f=0.1, min_
     vertices = sphere[:, 0:3]
     edges = (sphere[:, 3:]).astype(int)
     vertices_sph = qbm.cart2sph(vertices[:, 0], vertices[:, 1], vertices[:, 2])
-    vertices_sh = qbm.get_sh(vertices_sph[:, 1], vertices_sph[:, 2], max_order, c=sh_coeff)
+    vertices_sh = qbm.get_sh(vertices_sph[:, 1], vertices_sph[:, 2], max_order, coeffs=sh_coeff)
 
     ii = np.where(mask)
     xs, ys, zs = ii
+
+    n_coeffs, m, l, c1, c2 = qbm.get_m_l(max_order, sh_coeff)
 
     #INITIALIZE PEAK AND AMPLITUDE ARRAYS
     peaks = np.zeros(list(mask.shape) + [n*3], dtype=np.float)
@@ -65,9 +67,12 @@ def get_peaks(sphere, fod_file, mask_file, max_order, n=3, sym=True, f=0.1, min_
         #maxima = _amplitudes[_amplitudes >= f]
         #maxima_i = np.where(_amplitudes >= f)[0]
         maxima, maxima_i = find_maxima(edges, _amplitudes, f=f)
-        
+        # IF SYM, CONSIDER ONLY Z>0
+        if sym:
+            maxima = maxima[vertices[maxima_i, 2] > 0]
+            maxima_i = maxima_i[vertices[maxima_i, 2] > 0]
+            
         if maxima.size > 0:
-            # IF SYM, CONSIDER ONLY Z>0
             _peaks = vertices[maxima_i, :]
             #IF REFINE
             if non_lin:
@@ -75,9 +80,13 @@ def get_peaks(sphere, fod_file, mask_file, max_order, n=3, sym=True, f=0.1, min_
                 p = np.empty(maxima.size)
                 for i in range(0, maxima.size):
                     x0 = vertices_sph[maxima_i[i], 1:3]
-                    new_max, fm = opt.fmin(get_neg_amplitude, x0, args=(fod[x, y, z, :], max_order, sh_coeff), xtol=1e-2, disp=False, full_output=True)[:2]
-                    t[i], p[i] = new_max
-                    maxima[i] = -fm
+                    res = opt.minimize(get_neg_amplitude, x0,
+                                       args=(fod[x, y, z, :], max_order, sh_coeff, (n_coeffs, m, l, c1, c2)),
+                                       tol=1e-4, method='Nelder-Mead')
+                    t[i], p[i] = res.x
+                    maxima[i] = -res.fun
+                    if not res.success:
+                        print('Minimun not found for peak ' + str(i) + ' in voxel ' + str([x, y, z]))
                 _peaks = qbm.sph2cart(vertices_sph[maxima_i, 0], t, p)
                 
             if maxima.size > 1:
@@ -105,7 +114,7 @@ def get_peaks(sphere, fod_file, mask_file, max_order, n=3, sym=True, f=0.1, min_
 
 
     #RETURN PEAK AND AMPLITUDE ARRAYS
-    #return peaks, amplitudes
+    return peaks, amplitudes
 
 def clean_peaks(m, v, min_angle):
     check_i = np.ones(m.size)
@@ -142,7 +151,7 @@ def find_maxima(edges, amplitudes, f=0):
     return amplitudes[maxima_check > 0], np.where(maxima_check > 0)[0]
 
 
-def get_neg_amplitude(p_sph, fod, max_order, sh_coeff):
-    p_sh = qbm.get_sh(np.array([p_sph[0]]), np.array([p_sph[1]]), max_order, c=sh_coeff)
+def get_neg_amplitude(p_sph, fod, max_order, sh_coeff, nml):
+    p_sh = qbm.get_sh(np.array([p_sph[0]]), np.array([p_sph[1]]), max_order, coeffs=sh_coeff, nml=nml)
 
     return -np.dot(p_sh, fod)

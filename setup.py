@@ -8,7 +8,7 @@ setup(
 	version=__version__,
 	description='QBOOT V2',
 	author='Matteo Bastiani',
-	install_requires=['nibabel', 'scipy', 'cvxopt'],
+	install_requires=['nibabel', 'scipy', 'cvxopt', 'numpy'],
 	packages=find_packages(),
 
 )

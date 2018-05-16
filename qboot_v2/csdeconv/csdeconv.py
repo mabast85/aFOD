@@ -343,14 +343,14 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
             C_tmp = get_csd_matrix(bvecs, bvals, response[i], max_order[i], sym)
             C = np.concatenate((C, C_tmp), axis=1)
         # Get B matrix
-            B_sh_list = [qbm.get_sh(B_sph[:, 1], B_sph[:, 2], max_order[i], c=sh_coeff) 
+            B_sh_list = [qbm.get_sh(B_sph[:, 1], B_sph[:, 2], max_order[i], coeffs=sh_coeff) 
                          for i in np.arange(0, len(response))]
             B_sh = sp.linalg.block_diag(*B_sh_list)
     else:   # Single-tissue
         # Get CSD matrix
         C = get_csd_matrix(bvecs, bvals, response, max_order, sym)
         # Get B matrix
-        B_sh = qbm.get_sh(B_sph[:, 1], B_sph[:, 2], max_order, c=sh_coeff)
+        B_sh = qbm.get_sh(B_sph[:, 1], B_sph[:, 2], max_order, coeffs=sh_coeff)
         
     if sym is False:
         B_neg_sph = qbm.cart2sph(-B[:, 0], -B[:, 1], -B[:, 2])
@@ -359,7 +359,7 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
         print('Running SD')
         prev_fod = sdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order, sym=sym)
         if isinstance(response, list):  # Multi-tissue
-            B_neg_sh = qbm.get_sh(B_neg_sph[:, 1], B_neg_sph[:, 2], max_order[0], c=sh_coeff)    
+            B_neg_sh = qbm.get_sh(B_neg_sph[:, 1], B_neg_sph[:, 2], max_order[0], coeffs=sh_coeff)    
             # b0 = [0*i for i in np.arange(1, len(response))]
             # B_neg_sh = sp.linalg.block_diag(B_neg_sh, *b0)
             B_neg_sh = np.concatenate((B_neg_sh, np.zeros((B_neg_sh.shape[0], len(response)-1))), axis=1)
@@ -369,7 +369,7 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
             C = np.concatenate((C, l*B_C_sh), axis=0) 
             # w = np.concatenate((w, np.zeros((w.shape[0], len(response)-1))), axis=1)
         else:
-            B_neg_sh = qbm.get_sh(B_neg_sph[:, 1], B_neg_sph[:, 2], max_order, c=sh_coeff)    
+            B_neg_sh = qbm.get_sh(B_neg_sph[:, 1], B_neg_sph[:, 2], max_order, coeffs=sh_coeff)    
             l = l * (response.get_rh())[0, 0]
             C = np.concatenate((C, l*B_sh), axis=0) 
 
