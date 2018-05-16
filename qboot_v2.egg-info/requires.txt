@@ -1,5 +1,0 @@
-nibabel
-scipy
-matplotlib
-seaborn
-PyPDF2
