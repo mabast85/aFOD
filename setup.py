@@ -10,5 +10,6 @@ setup(
 	author='Matteo Bastiani',
 	install_requires=['nibabel', 'scipy', 'cvxopt', 'numpy'],
 	packages=find_packages(),
+    include_package_data=True,
 
 )

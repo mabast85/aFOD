@@ -38,7 +38,7 @@ def round_bvals(bvals, verbose=False):
 
 
 def get_peaks(sphere, fod_file, mask_file, max_order, n=3, sym=True, f=0.1, min_angle=25,
-              non_lin=False, save_results=False):
+              non_lin=False, save_results=False, verbose=False):
     mask = (nib.load(mask_file)).get_data()
     fod_obj = nib.load(fod_file)
     fod = fod_obj.get_data()
@@ -85,8 +85,9 @@ def get_peaks(sphere, fod_file, mask_file, max_order, n=3, sym=True, f=0.1, min_
                                        tol=1e-4, method='Nelder-Mead')
                     t[i], p[i] = res.x
                     maxima[i] = -res.fun
-                    if not res.success:
-                        print('Minimun not found for peak ' + str(i) + ' in voxel ' + str([x, y, z]))
+                    if verbose:
+                        if not res.success:
+                            print('Minimun not found for peak ' + str(i) + ' in voxel ' + str([x, y, z]))
                 _peaks = qbm.sph2cart(vertices_sph[maxima_i, 0], t, p)
                 
             if maxima.size > 1:
@@ -109,7 +110,7 @@ def get_peaks(sphere, fod_file, mask_file, max_order, n=3, sym=True, f=0.1, min_
         print('Storing peaks and amplitudes')
         d = os.path.dirname(fod_file)
         for i in range(0, n):
-            nib.Nifti1Image(peaks[:, :, :, 3*i:3*(i+1)], None, fod_obj.header).to_filename(d + '/peak' + str(i+1))
+            nib.Nifti1Image(peaks[:, :, :, 3*i:3*(i+1)], None, fod_obj.header).to_filename(d + '/peak' + str(i+1) + '.nii.gz')
             nib.Nifti1Image(amplitudes[:, :, :, i], None, fod_obj.header).to_filename(d + '/peak' + str(i+1) + '_amplitude.nii.gz')
 
 

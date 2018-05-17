@@ -1,9 +1,9 @@
------------------------------------------------
+-----------------------------------------------------
 Asymmetric fibre orientation distributions (aFODs)
 
 Matteo Bastiani, FMRIB
 May 2018
------------------------------------------------
+-----------------------------------------------------
 Library that allows the estimation of asymmetric FODs from diffusion
 MRI data.
 
@@ -20,8 +20,8 @@ python setup.py install
 -------------------------------------------
 Tutorial
 -------------------------------------------
-A jupyter-notebook file can be downloaded from here:
-LINK
+A jupyter-notebook file is included in the repository:
+qboot_v2/tutorial/afod_tutorial.ipynb
 
 explaining the different steps needed to estimate aFODs.
 

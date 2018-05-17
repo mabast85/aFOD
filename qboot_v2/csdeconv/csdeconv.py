@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+
+import os.path as op
 import ctypes
 import multiprocessing as mp
 import numpy as np
@@ -158,7 +161,7 @@ class Response(object):
             fname: string with the response function's coefficients path.
         '''
         delta = qbm.get_delta(np.array([0]), np.array([0]), self.max_order)
-        np.savetxt(fname, self.coefficients[np.where(delta[0, :])], fmt='%.5f', delimiter=' ')
+        np.savetxt(fname, self.coefficients[:, delta[0, :] != 0], fmt='%.5f', delimiter=' ')
 
 
 def get_csd_matrix(bvecs, bvals, response, max_order, sym=True):
@@ -333,7 +336,10 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
     # ========================
     # Get necessary matrices
     # ========================
-    B = np.genfromtxt('/Users/matteob/qboot_v2/qboot_v2/utils/ico_5.txt', dtype=np.float32)
+    resource_dir = op.dirname(__file__)
+    ico5 = op.join(resource_dir, 'ico_5.txt')
+    # B = np.genfromtxt('/Users/matteob/qboot_v2/qboot_v2/utils/ico_5.txt', dtype=np.float32)[:, 0:3]
+    B = np.genfromtxt(ico5, dtype=np.float32)[:, 0:3]
     B_sph = qbm.cart2sph(B[:, 0], B[:, 1], B[:, 2])
     
     if isinstance(response, list):  # Multi-tissue

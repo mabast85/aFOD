@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import numpy as np
 from scipy.special import lpmv
 from scipy.misc import factorial
