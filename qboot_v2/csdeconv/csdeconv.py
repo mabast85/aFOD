@@ -146,11 +146,16 @@ class Response(object):
         Returns:
             A response function class with the imported coefficients.
         '''
-        _coefficients = np.genfromtxt(fname, dtype=float, delimiter=' ')
-        max_order = 2 * (_coefficients.size - 1)
+        h = np.genfromtxt(fname, max_rows=1, dtype=int, delimiter=' ')
+        _coefficients = np.genfromtxt(fname, skip_header=1, dtype=float, delimiter=' ')
+        max_order = h[1]
+        n_coeffs = int(1 + max_order / 2)
+        print('Importing response function coefficients...')
+        print(str(h[0]) + ' b-shells detected, max harmonic order=' + str(h[1]))
+        _coefficients = _coefficients.reshape((h[0], n_coeffs))
         delta = qbm.get_delta(np.array([0]), np.array([0]), max_order)
-        coefficients = np.zeros((delta.size), dtype=float)
-        coefficients[np.where(delta[0, :])] = _coefficients
+        coefficients = np.zeros((h[0], (delta.size)), dtype=float)
+        coefficients[:, delta[0, :] != 0] = _coefficients
         return cls(coefficients=coefficients, max_order=max_order)
 
     def write_coefficients(self, fname):
@@ -161,7 +166,10 @@ class Response(object):
             fname: string with the response function's coefficients path.
         '''
         delta = qbm.get_delta(np.array([0]), np.array([0]), self.max_order)
-        np.savetxt(fname, self.coefficients[:, delta[0, :] != 0], fmt='%.5f', delimiter=' ')
+        with open(fname, 'wb') as fh:
+            h = np.array([[self.coefficients.shape[0], self.max_order]])
+            np.savetxt(fh, h, fmt='%d', delimiter=' ')
+            np.savetxt(fh, self.coefficients[:, delta[0, :] != 0], fmt='%.5f', delimiter=' ')
 
 
 def get_csd_matrix(bvecs, bvals, response, max_order, sym=True):
@@ -380,7 +388,7 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
             C = np.concatenate((C, l*B_sh), axis=0) 
 
     H = np.dot(C.T, C)
-    
+    H = H + 1e-3*np.eye(H.shape[0])
     fod = np.zeros(list(mask.shape) + [B_sh.shape[1]], dtype=np.float32)
     
     # Create shared memory arrays
