@@ -11,7 +11,7 @@ import threading
 import progressbar
 from qboot_v2.utils import math as qbm
 from qboot_v2.utils import utils
-from cvxopt import matrix, spmatrix
+from cvxopt import matrix
 from cvxopt.solvers import options, qp
 
 # import osqp
@@ -48,14 +48,13 @@ class Response(object):
 
     @classmethod
     def get_response(cls, data_file, mask_file, bvals_file, bvecs_file,
-                     max_order, bval=None, dti_basename=None, normalize=False):
+                     max_order, dti_basename, bval=None, normalize=False):
         '''Computes the response function coefficients.
 
         This method computes the response function's coefficients up to
         max_order from a set of masked voxels; it uses the DT estimated by FSL.
 
         Args:
-            cls: response function class.
             data_file: string containing the path to the 4D nifti dMRI data file
             mask_file: string containing the path to the 3D nifti binary mask file
             bvals_file: string containing the path to the bvals file
@@ -68,16 +67,12 @@ class Response(object):
         Returns:
             A response function class with the estimated coefficients
         '''
-        if dti_basename is None:
-            raise ValueError(dti_basename + ' does not appear to be a valid dtifit basename')
-        else:
-            dti_V1 = (nib.load(dti_basename + '_V1.nii.gz')).get_data()
-
         # Read input files
         bvals = np.genfromtxt(bvals_file, dtype=float)
         bvecs = np.genfromtxt(bvecs_file, dtype=float)
         data = (nib.load(data_file)).get_data()
         mask = (nib.load(mask_file)).get_data()
+        dti_V1 = (nib.load(dti_basename + '_V1.nii.gz')).get_data()
         vox_list = np.where(mask)
         print('Found ' + str(np.count_nonzero(mask)) + ' masked voxels')
 
@@ -85,21 +80,16 @@ class Response(object):
         r_bvals = utils.round_bvals(bvals)
         # If bval is not specified, get coefficients for all each unique shell
         if bval is None:
-            u_bvals, counts = np.unique(r_bvals.astype(int), return_counts=True)
+            u_bvals = np.unique(r_bvals.astype(int))
             print('Found ' + str(u_bvals.size) + ' shells')
         else:
-            u_bvals = np.array(bval)
+            u_bvals = np.atleast_1d(bval)
 
         # Initialize outuput matrix
-        count_b = 0
         n_coeffs = (max_order+1)*(max_order+2)/2
         coefficients = np.zeros((u_bvals.size, int(n_coeffs)))
-        # Main loop through the masked voxels for each shell
-        for i in np.arange(0, u_bvals.size):
-            if u_bvals.size == 1:
-                b = u_bvals
-            else:
-                b = u_bvals[i]
+        # Main loop through the requested shells
+        for count_b, b in enumerate(u_bvals):
             # b0 coefficients
             if b <= 100:
                 rot_bvecs_sph = qbm.cart2sph(bvecs[0, r_bvals > 100], bvecs[1, r_bvals > 100], bvecs[2, r_bvals > 100])
@@ -112,9 +102,8 @@ class Response(object):
                     coefficients[count_b, :] = coefficients[count_b, :] + np.linalg.lstsq(rot_bvecs_sh, s)[0]
             # b>0 coefficients
             else:
-                count = 0
+                # Main loop through the masked voxels
                 for x, y, z in zip(*vox_list):
-                    count += 1
                     # Rotation matrix to align V1 with the z axis
                     R = qbm.get_rotation(dti_V1[x, y, z, :], [0, 0, 1])
                     rot_bvecs = np.dot(R.T, bvecs[:, r_bvals == b])
@@ -126,8 +115,7 @@ class Response(object):
                         coefficients[count_b, :] = coefficients[count_b, :] + np.linalg.lstsq(rot_bvecs_sh, s / s0)[0]
                     else:
                         coefficients[count_b, :] = coefficients[count_b, :] + np.linalg.lstsq(rot_bvecs_sh, s)[0]
-                coefficients[count_b, :] /= count
-            count_b += 1
+                coefficients[count_b, :] /= len(vox_list[0])
 
         return cls(coefficients, max_order)
 
@@ -164,7 +152,6 @@ class Response(object):
         '''Writes SH coefficients to a text file.
 
         Args:
-            self: response function class.
             fname: string with the response function's coefficients path.
         '''
         delta = qbm.get_delta(np.array([0]), np.array([0]), self.max_order)
@@ -184,8 +171,8 @@ def get_csd_matrix(bvecs, bvals, response, max_order, sym=True):
     Args:
         bvecs: 3xN numpy array with diffusion encoding orientations.
         bvals: N numpy array with b-values.
-        response: list (for multi-tissue) or single response function object.
-        max_order: list (for multi-tissue) or single maximum harmonic order.
+        response: single response function object.
+        max_order: single maximum harmonic order.
         sym: if true, consider only even order symmetrics SH coefficients.
 
     Returns:
@@ -193,7 +180,7 @@ def get_csd_matrix(bvecs, bvals, response, max_order, sym=True):
     '''
     # Round bvalues and find unique shells
     r_bvals = utils.round_bvals(bvals)
-    u_bvals, counts = np.unique(r_bvals.astype(int), return_counts=True)
+    u_bvals = np.unique(r_bvals.astype(int))
     if u_bvals.size != response.coefficients.shape[0]:
         raise ValueError('Number of shells does not appear to match the number of response functions')
     bvecs_sph = qbm.cart2sph(bvecs[0, :], bvecs[1, :], bvecs[2, :])
@@ -203,12 +190,8 @@ def get_csd_matrix(bvecs, bvals, response, max_order, sym=True):
         rh = np.append(rh, np.zeros((rh.shape[0], int((max_order - response.max_order)/2))), axis=1)
 
     C = np.zeros(bvecs_sh.shape)
-    for i in np.arange(0, u_bvals.size):
-        if u_bvals.size == 1:
-            b = u_bvals
-        else:
-            b = u_bvals[i]
-        m, R = np.concatenate([[(m, rh[i, int(l/2)]) for m in range(-l, l+1)]
+    for b, rh_shell in zip(u_bvals, rh):
+        m, R = np.concatenate([[(m, rh_shell[int(l/2)]) for m in range(-l, l+1)]
                                for l in range(0, max_order+1, 2)], axis=0).T
         R = np.diag(R)
         C[r_bvals == b, :] = np.dot(bvecs_sh[r_bvals == b, :], R)
@@ -326,7 +309,6 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
     Returns:
         4D numpy array of SH coefficients.
     '''
-
     # Load data
     bvals = np.genfromtxt(bvals_file, dtype=np.float32)
     bvecs = np.genfromtxt(bvecs_file, dtype=np.float32)
