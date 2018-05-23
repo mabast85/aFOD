@@ -14,7 +14,8 @@ import scipy.optimize as opt
 #=========================================================================================
 
 def round_bvals(bvals, verbose=False):
-    # Round the bvals to the median value for each identified shell
+    '''Round the bvals to the median value for each identified shell
+    '''
     tol = 100   # Tolerance
     selected = np.zeros(bvals.size, dtype='bool')
     same_b = abs(bvals[:, None] - bvals[None, :]) <= tol
