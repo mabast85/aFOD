@@ -7,6 +7,8 @@ import numpy as np
 import scipy as sp
 import nibabel as nib
 import itertools
+import threading
+import progressbar
 from qboot_v2.utils import math as qbm
 from qboot_v2.utils import utils
 from cvxopt import matrix, spmatrix
@@ -417,28 +419,56 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
     iiys = [y[i * chunk_size:i * chunk_size + chunk_size] for i in range(nprocs)] + [y[chunk_end:]]
     iizs = [z[i * chunk_size:i * chunk_size + chunk_size] for i in range(nprocs)] + [z[chunk_end:]]
 
+    # create a multiprocessing context
+    ctx = mp.get_context('forkserver')
+    progqueue = ctx.Queue()
+
     # create arguments for each child process
     if sym:
-        args = [(shared_data, shared_fod, shared_prev_fod, (xs, ys, zs), fod.shape, data.shape, bvals, H, C, B_sh, sym)
+        args = [(shared_data, shared_fod, shared_prev_fod, (xs, ys, zs), fod.shape, data.shape, bvals, H, C, B_sh, sym, progqueue)
                 for xs, ys, zs in zip(iixs, iiys, iizs)]
     else:
-        args = [(shared_data, shared_fod, shared_prev_fod, (xs, ys, zs), fod.shape, data.shape, bvals, H, C, B_sh, sym, B_neg_sh, w, l)
+        args = [(shared_data, shared_fod, shared_prev_fod, (xs, ys, zs), fod.shape, data.shape, bvals, H, C, B_sh, sym, progqueue, B_neg_sh, w, l)
                 for xs, ys, zs in zip(iixs, iiys, iizs)]
 
     # csdeconv_fit((x, y, z), fod.shape, data.shape, bvals, H, C, B_sh, sym, B_neg_sh, w, l)
 
-    # Create child processes
-    ctx = mp.get_context('forkserver')
+    print('Running CSD (using {} processes)'.format(nprocs), flush=True)
 
-    print('Running CSD (using {} processes)'.format(nprocs))
+    # Create a progress bar to show progress,
+    # and a thread which receives updates
+    # from the csdeconv_fit processes, and
+    # updates the progress bar accordingly.
+    progbar = progressbar.ProgressBar(max_value=nvox)
+    progbar.start()
+
+    def update_progress():
+        while True:
+            nextval = progqueue.get()
+            if nextval == 'finish':
+                return
+            else:
+                progbar.update(progbar.value + nextval)
+
+    progthread = threading.Thread(target=update_progress)
+    progthread.daemon = True
+    progthread.start()
+
+    # Create the child processes
     procs = []
     for a in args:
         p = ctx.Process(target=csdeconv_fit, args=a)
         p.start()
         procs.append(p)
 
+    # Wait until they're finished
     for p in procs:
         p.join()
+
+    # Send a signal to the progress bar
+    # thread to tell it to finish up.
+    progbar.finish()
+    progqueue.put('finish')
 
     if out_file is not None:
         print('Storing SH coefficients')
@@ -447,7 +477,7 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
     return fod_ptr
 
 
-def csdeconv_fit(data, fod, prev_fod, vox_list, fod_shape, data_shape, bvals, H, C, B, sym, B_neg=None, w=None, l=None):
+def csdeconv_fit(data, fod, prev_fod, vox_list, fod_shape, data_shape, bvals, H, C, B, sym, progqueue=None, B_neg=None, w=None, l=None):
     '''Constrained spherical deconvolution fitiing method.
 
     Computes FOD coefficients using quadratic programming (QP) solver and
@@ -465,6 +495,7 @@ def csdeconv_fit(data, fod, prev_fod, vox_list, fod_shape, data_shape, bvals, H,
         C: convolution matrix.
         B: unit sphere SH coefficients.
         sym: if true, consider only even order symmetrics SH coefficients.
+        progqueue: mp.Queue to post progress updates
         B_neg: flipped unit sphere SH coefficients for asymmetric FOD fit.
         w: weights matrix for asymmetric FOD fit.
         l: lambda for asymmetric FOD fit.
@@ -491,7 +522,7 @@ def csdeconv_fit(data, fod, prev_fod, vox_list, fod_shape, data_shape, bvals, H,
     prob = osqp.OSQP()
     prob.setup(P, q, A, l, u, alpha=1.0)
     '''
-    for x, y, z in zip(*vox_list):
+    for i, (x, y, z) in enumerate(zip(*vox_list)):
         s = data[x, y, z, :]
         # if sym:
         #    f = np.dot(-C.T, s)
@@ -514,6 +545,9 @@ def csdeconv_fit(data, fod, prev_fod, vox_list, fod_shape, data_shape, bvals, H,
         if 'optimal' not in sol['status']:
             print('Solution not found')
         fod[x, y, z, :] = np.array(sol['x']).reshape((f.shape[0],))
+
+        if progqueue is not None and i > 0 and i % 100 == 0:
+            progqueue.put(100)
 
         '''
         prob.update(Px=f)
