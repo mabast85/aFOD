@@ -43,7 +43,7 @@ class Response(object):
         '''Inits a new response function.'''
         self.coefficients = coefficients
         self.max_order = max_order
-        
+
     @classmethod
     def get_response(cls, data_file, mask_file, bvals_file, bvecs_file,
                      max_order, bval=None, dti_basename=None, normalize=False):
@@ -70,7 +70,7 @@ class Response(object):
             raise ValueError(dti_basename + ' does not appear to be a valid dtifit basename')
         else:
             dti_V1 = (nib.load(dti_basename + '_V1.nii.gz')).get_data()
-        
+
         # Read input files
         bvals = np.genfromtxt(bvals_file, dtype=float)
         bvecs = np.genfromtxt(bvecs_file, dtype=float)
@@ -126,9 +126,9 @@ class Response(object):
                         coefficients[count_b, :] = coefficients[count_b, :] + np.linalg.lstsq(rot_bvecs_sh, s)[0]
                 coefficients[count_b, :] /= count
             count_b += 1
-    
+
         return cls(coefficients, max_order)
-        
+
     def get_rh(self):
         '''Gets rotational harmonics.'''
         delta = qbm.get_delta(np.array([0]), np.array([0]), self.max_order)
@@ -142,7 +142,7 @@ class Response(object):
         Args:
             cls: response function class.
             fname: string with the response function's coefficients path.
-        
+
         Returns:
             A response function class with the imported coefficients.
         '''
@@ -175,8 +175,8 @@ class Response(object):
 def get_csd_matrix(bvecs, bvals, response, max_order, sym=True):
     '''Computes convolution matrix.
 
-    Generates convolution matrix for each acquired orientation; 
-    if multi-tissue, concatenates convolution matrices for 
+    Generates convolution matrix for each acquired orientation;
+    if multi-tissue, concatenates convolution matrices for
     the different tissues.
 
     Args:
@@ -199,7 +199,7 @@ def get_csd_matrix(bvecs, bvals, response, max_order, sym=True):
     rh = response.get_rh()
     if response.max_order < max_order:
         rh = np.append(rh, np.zeros((rh.shape[0], int((max_order - response.max_order)/2))), axis=1)
-    
+
     C = np.zeros(bvecs_sh.shape)
     for i in np.arange(0, u_bvals.size):
         if u_bvals.size == 1:
@@ -223,7 +223,7 @@ def get_weights(vertices, sigma=40):
 
     Generates matrix that contains the weight for each point on the
     neighbouring fod based on their distance to the current voxel and
-    the angle between the current fod point and the point of the 
+    the angle between the current fod point and the point of the
     neighbouring fod.
 
     Args:
@@ -260,7 +260,7 @@ def sdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
         max_order: list (for multi-tissue) or single maximum harmonic order.
         sym: if true, consider only even order symmetrics SH coefficients.
         out_file: string containing the output file name (optional).
-        
+
     Returns:
         4D numpy array of SH coefficients.
     '''
@@ -281,7 +281,7 @@ def sdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
     else:   # Single-tissue
         # Get CSD matrix
         C = get_csd_matrix(bvecs, bvals, response, max_order, sym)
-        
+
     # Initialise output fod matrix
     fod = np.zeros(list(mask.shape) + [C.shape[1]], dtype=np.float32)
 
@@ -296,7 +296,7 @@ def sdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
         nib.Nifti1Image(fod, None, data_obj.header).to_filename(out_file)
 
     return fod
-    
+
 
 def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
              sym=False, l=0.1, sigma=40, out_file=None):
@@ -320,10 +320,11 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
         l: lambda regularization factor for asymmetric CSD.
         sigma: cut-off neighbourhood angle for asymmetric CSD.
         out_file: string containing the output file name (optional).
-        
+
     Returns:
         4D numpy array of SH coefficients.
     '''
+
     # Load data
     bvals = np.genfromtxt(bvals_file, dtype=np.float32)
     bvecs = np.genfromtxt(bvecs_file, dtype=np.float32)
@@ -349,7 +350,7 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
     # B = np.genfromtxt('/Users/matteob/qboot_v2/qboot_v2/utils/ico_5.txt', dtype=np.float32)[:, 0:3]
     B = np.genfromtxt(ico5, dtype=np.float32)[:, 0:3]
     B_sph = qbm.cart2sph(B[:, 0], B[:, 1], B[:, 2])
-    
+
     if isinstance(response, list):  # Multi-tissue
         # Get CSD matrices
         C = get_csd_matrix(bvecs, bvals, response[0], max_order[0], sym)
@@ -357,7 +358,7 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
             C_tmp = get_csd_matrix(bvecs, bvals, response[i], max_order[i], sym)
             C = np.concatenate((C, C_tmp), axis=1)
         # Get B matrix
-            B_sh_list = [qbm.get_sh(B_sph[:, 1], B_sph[:, 2], max_order[i], coeffs=sh_coeff) 
+            B_sh_list = [qbm.get_sh(B_sph[:, 1], B_sph[:, 2], max_order[i], coeffs=sh_coeff)
                          for i in np.arange(0, len(response))]
             B_sh = sp.linalg.block_diag(*B_sh_list)
     else:   # Single-tissue
@@ -365,7 +366,7 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
         C = get_csd_matrix(bvecs, bvals, response, max_order, sym)
         # Get B matrix
         B_sh = qbm.get_sh(B_sph[:, 1], B_sph[:, 2], max_order, coeffs=sh_coeff)
-        
+
     if sym is False:
         B_neg_sph = qbm.cart2sph(-B[:, 0], -B[:, 1], -B[:, 2])
         l = l * C.shape[0] / B.shape[0]
@@ -373,41 +374,39 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
         print('Running SD')
         prev_fod = sdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order, sym=sym)
         if isinstance(response, list):  # Multi-tissue
-            B_neg_sh = qbm.get_sh(B_neg_sph[:, 1], B_neg_sph[:, 2], max_order[0], coeffs=sh_coeff)    
+            B_neg_sh = qbm.get_sh(B_neg_sph[:, 1], B_neg_sph[:, 2], max_order[0], coeffs=sh_coeff)
             # b0 = [0*i for i in np.arange(1, len(response))]
             # B_neg_sh = sp.linalg.block_diag(B_neg_sh, *b0)
             B_neg_sh = np.concatenate((B_neg_sh, np.zeros((B_neg_sh.shape[0], len(response)-1))), axis=1)
             l = l * (response[0].get_rh())[0, 0]
             # B_C_sh = sp.linalg.block_diag(B_sh_list[0], *b0)
             B_C_sh = np.concatenate((B_sh_list[0], np.zeros((B_sh_list[0].shape[0], len(response)-1))), axis=1)
-            C = np.concatenate((C, l*B_C_sh), axis=0) 
+            C = np.concatenate((C, l*B_C_sh), axis=0)
             # w = np.concatenate((w, np.zeros((w.shape[0], len(response)-1))), axis=1)
         else:
-            B_neg_sh = qbm.get_sh(B_neg_sph[:, 1], B_neg_sph[:, 2], max_order, coeffs=sh_coeff)    
+            B_neg_sh = qbm.get_sh(B_neg_sph[:, 1], B_neg_sph[:, 2], max_order, coeffs=sh_coeff)
             l = l * (response.get_rh())[0, 0]
-            C = np.concatenate((C, l*B_sh), axis=0) 
+            C = np.concatenate((C, l*B_sh), axis=0)
 
     H = np.dot(C.T, C)
     H = H + 1e-3*np.eye(H.shape[0])
     fod = np.zeros(list(mask.shape) + [B_sh.shape[1]], dtype=np.float32)
-    
+
     # Create shared memory arrays
     shared_fod = mp.RawArray(ctypes.c_float, fod.size)
     shared_data = mp.RawArray(ctypes.c_float, data.size)
-    
+    shared_prev_fod = None
+
     fod_ptr = np.ctypeslib.as_array(shared_fod).reshape(fod.shape)
     data_ptr = np.ctypeslib.as_array(shared_data).reshape(data.shape)
 
     data_ptr[:] = data
-    csdeconv_fit.shared_fod = shared_fod
-    csdeconv_fit.shared_data = shared_data
 
     if sym is False:
         shared_prev_fod = mp.RawArray(ctypes.c_float, prev_fod.size)
         prev_fod_ptr = np.ctypeslib.as_array(shared_prev_fod).reshape(prev_fod.shape)
         prev_fod_ptr[:] = prev_fod
-        csdeconv_fit.shared_prev_fod = shared_prev_fod
-    
+
     # Chunk up indices
     x, y, z = ii
     nvox = len(x)
@@ -417,38 +416,47 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
     iixs = [x[i * chunk_size:i * chunk_size + chunk_size] for i in range(nprocs)] + [x[chunk_end:]]
     iiys = [y[i * chunk_size:i * chunk_size + chunk_size] for i in range(nprocs)] + [y[chunk_end:]]
     iizs = [z[i * chunk_size:i * chunk_size + chunk_size] for i in range(nprocs)] + [z[chunk_end:]]
-    
+
     # create arguments for each child process
     if sym:
-        args = [((xs, ys, zs), fod.shape, data.shape, bvals, H, C, B_sh, sym) 
+        args = [(shared_data, shared_fod, shared_prev_fod, (xs, ys, zs), fod.shape, data.shape, bvals, H, C, B_sh, sym)
                 for xs, ys, zs in zip(iixs, iiys, iizs)]
     else:
-        args = [((xs, ys, zs), fod.shape, data.shape, bvals, H, C, B_sh, sym, B_neg_sh, w, l) 
+        args = [(shared_data, shared_fod, shared_prev_fod, (xs, ys, zs), fod.shape, data.shape, bvals, H, C, B_sh, sym, B_neg_sh, w, l)
                 for xs, ys, zs in zip(iixs, iiys, iizs)]
-    
+
     # csdeconv_fit((x, y, z), fod.shape, data.shape, bvals, H, C, B_sh, sym, B_neg_sh, w, l)
-    
+
     # Create child processes
-    print('Starting multiple processes, N=', nprocs)
-    pool = mp.Pool(processes=nprocs)
-    
-    print('Running CSD')
-    pool.starmap(csdeconv_fit, args)
+    ctx = mp.get_context('forkserver')
+
+    print('Running CSD (using {} processes)'.format(nprocs))
+    procs = []
+    for a in args:
+        p = ctx.Process(target=csdeconv_fit, args=a)
+        p.start()
+        procs.append(p)
+
+    for p in procs:
+        p.join()
 
     if out_file is not None:
         print('Storing SH coefficients')
         nib.Nifti1Image(fod_ptr, None, data_obj.header).to_filename(out_file)
 
     return fod_ptr
-    
-    
-def csdeconv_fit(vox_list, fod_shape, data_shape, bvals, H, C, B, sym, B_neg=None, w=None, l=None):
+
+
+def csdeconv_fit(data, fod, prev_fod, vox_list, fod_shape, data_shape, bvals, H, C, B, sym, B_neg=None, w=None, l=None):
     '''Constrained spherical deconvolution fitiing method.
 
-    Computes FOD coefficients using quadratic programming (QP) solver and 
+    Computes FOD coefficients using quadratic programming (QP) solver and
     stores them in the shared memory numpy array.
 
     Args:
+        data:  Diffusion data
+        fod: Array to store output
+        prev_fod:  Unconstrained spherical deconvolution (only used if sym is False)
         vox_list: list of masked voxels.
         fod_shape: list of FOD array dimensions.
         data_shape: list of data array dimensions.
@@ -461,14 +469,10 @@ def csdeconv_fit(vox_list, fod_shape, data_shape, bvals, H, C, B, sym, B_neg=Non
         w: weights matrix for asymmetric FOD fit.
         l: lambda for asymmetric FOD fit.
     '''
-    
-    fod = csdeconv_fit.shared_fod
-    data = csdeconv_fit.shared_data
-    
+
     fod = np.ctypeslib.as_array(fod).reshape(fod_shape)
     data = np.ctypeslib.as_array(data).reshape(data_shape)
     if sym is False:
-        prev_fod = csdeconv_fit.shared_prev_fod
         prev_fod = np.ctypeslib.as_array(prev_fod).reshape(fod_shape)
         neighs = np.array(list(itertools.product([-1, 0, 1], repeat=3)))
         neighs = np.delete(neighs, 13, 0)   # Remove [0, 0, 0]
@@ -483,7 +487,7 @@ def csdeconv_fit(vox_list, fod_shape, data_shape, bvals, H, C, B, sym, B_neg=Non
     A = sparse.csc_matrix(-B)
     l = -np.inf*np.ones(len(np.zeros(B.shape[0])))
     u = np.zeros(B.shape[0])
-    
+
     prob = osqp.OSQP()
     prob.setup(P, q, A, l, u, alpha=1.0)
     '''
@@ -510,7 +514,7 @@ def csdeconv_fit(vox_list, fod_shape, data_shape, bvals, H, C, B, sym, B_neg=Non
         if 'optimal' not in sol['status']:
             print('Solution not found')
         fod[x, y, z, :] = np.array(sol['x']).reshape((f.shape[0],))
-        
+
         '''
         prob.update(Px=f)
         res = prob.solve()
@@ -530,7 +534,7 @@ def predict(response, fod_file, mask_file, bvals_file, bvecs_file, max_order, sy
         max_order: list (for multi-tissue) or single maximum harmonic order.
         sym: if true, consider only even order symmetrics SH coefficients.
         out_file: string containing the output file name (optional).
-        
+
     Returns:
         4D numpy array of predicted signal.
     '''
@@ -549,7 +553,7 @@ def predict(response, fod_file, mask_file, bvals_file, bvecs_file, max_order, sy
             C = np.concatenate((C, C_tmp), axis=1)
     else:   # Single-tissue
         C = get_csd_matrix(bvecs, bvals, response, max_order, sym)
-        
+
     # Initialise output fod matrix
     pred = np.zeros(list(mask.shape) + [bvecs.shape[1]], dtype=np.float32)
 
@@ -562,7 +566,5 @@ def predict(response, fod_file, mask_file, bvals_file, bvecs_file, max_order, sy
     if out_file is not None:
         print('Storing SH coefficients')
         nib.Nifti1Image(pred, None, fod_obj.header).to_filename(out_file)
-    
+
     return pred
-    
-    
