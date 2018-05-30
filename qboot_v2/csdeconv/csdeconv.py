@@ -373,8 +373,6 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
         B_neg_sph = qbm.cart2sph(-B[:, 0], -B[:, 1], -B[:, 2])
         l = l * C.shape[0] / B.shape[0]
         w = get_weights(B, sigma)
-        print('Running SD')
-        prev_fod = sdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order, sym=sym)
         if isinstance(response, list):  # Multi-tissue
             B_neg_sh = qbm.get_sh(B_neg_sph[:, 1], B_neg_sph[:, 2], max_order[0], coeffs=sh_coeff)
             # b0 = [0*i for i in np.arange(1, len(response))]
@@ -385,10 +383,16 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
             B_C_sh = np.concatenate((B_sh_list[0], np.zeros((B_sh_list[0].shape[0], len(response)-1))), axis=1)
             C = np.concatenate((C, l*B_C_sh), axis=0)
             # w = np.concatenate((w, np.zeros((w.shape[0], len(response)-1))), axis=1)
+            print('Running SD')
+            prev_fod = np.zeros(list(mask.shape) + [B_sh.shape[1]], dtype=np.float32)
+            prev_fod[:, :, :, 0:B_sh_list[0].shape[1]] = sdeconv(response[0], data_file, mask_file, bvals_file, bvecs_file, max_order[0], sym=sym)
         else:
             B_neg_sh = qbm.get_sh(B_neg_sph[:, 1], B_neg_sph[:, 2], max_order, coeffs=sh_coeff)
             l = l * (response.get_rh())[0, 0]
             C = np.concatenate((C, l*B_sh), axis=0)
+            print('Running SD')
+            prev_fod = sdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order, sym=sym)
+        
 
     H = np.dot(C.T, C)
     H = H + 1e-3*np.eye(H.shape[0])
