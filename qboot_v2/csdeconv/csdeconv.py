@@ -407,10 +407,10 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
 
     # create arguments for each child process
     if sym:
-        args = [(shared_data, shared_fod, shared_prev_fod, (xs, ys, zs), fod.shape, data.shape, bvals, H, C, B_sh, sym, progqueue)
+        args = [(shared_data, shared_fod, shared_prev_fod, (xs, ys, zs), fod.shape, data.shape, H, C, B_sh, sym, progqueue)
                 for xs, ys, zs in zip(iixs, iiys, iizs)]
     else:
-        args = [(shared_data, shared_fod, shared_prev_fod, (xs, ys, zs), fod.shape, data.shape, bvals, H, C, B_sh, sym, progqueue, B_neg_sh, w, l)
+        args = [(shared_data, shared_fod, shared_prev_fod, (xs, ys, zs), fod.shape, data.shape, H, C, B_sh, sym, progqueue, B_neg_sh, w, l)
                 for xs, ys, zs in zip(iixs, iiys, iizs)]
 
     # csdeconv_fit((x, y, z), fod.shape, data.shape, bvals, H, C, B_sh, sym, B_neg_sh, w, l)
@@ -459,7 +459,7 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
     return fod_ptr
 
 
-def csdeconv_fit(data, fod, prev_fod, vox_list, fod_shape, data_shape, bvals, H, C, B, sym, progqueue=None, B_neg=None, w=None, l=None):
+def csdeconv_fit(data, fod, prev_fod, vox_list, fod_shape, data_shape, H, C, B, sym, progqueue=None, B_neg=None, w=None, l=None):
     '''Constrained spherical deconvolution fitiing method.
 
     Computes FOD coefficients using quadratic programming (QP) solver and
@@ -472,7 +472,6 @@ def csdeconv_fit(data, fod, prev_fod, vox_list, fod_shape, data_shape, bvals, H,
         vox_list: list of masked voxels.
         fod_shape: list of FOD array dimensions.
         data_shape: list of data array dimensions.
-        bvals: N numpy array of b-values.
         H: QP matrix.
         C: convolution matrix.
         B: unit sphere SH coefficients.
