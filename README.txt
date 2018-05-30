@@ -2,6 +2,8 @@
 Asymmetric fibre orientation distributions (aFODs)
 
 Matteo Bastiani, FMRIB
+Michiel Cottaar, FMRIB
+Paul McCarthy, FMRIB
 May 2018
 -----------------------------------------------------
 Library that allows the estimation of asymmetric FODs from diffusion
@@ -16,6 +18,7 @@ Installation
 The package can be installed using the setup.py file provided by running:
 python setup.py install
 
+or using pip.
 
 -------------------------------------------
 Tutorial
