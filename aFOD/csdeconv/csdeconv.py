@@ -9,8 +9,8 @@ import nibabel as nib
 import itertools
 import threading
 import progressbar
-from qboot_v2.utils import math as qbm
-from qboot_v2.utils import utils
+from aFOD.utils import math as qbm
+from aFOD.utils import utils
 from cvxopt import matrix
 from cvxopt.solvers import options, qp
 
@@ -331,7 +331,6 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
     # ========================
     resource_dir = op.dirname(__file__)
     ico5 = op.join(resource_dir, 'ico_5.txt')
-    # B = np.genfromtxt('/Users/matteob/qboot_v2/qboot_v2/utils/ico_5.txt', dtype=np.float32)[:, 0:3]
     B = np.genfromtxt(ico5, dtype=np.float32)[:, 0:3]
     B_sph = qbm.cart2sph(B[:, 0], B[:, 1], B[:, 2])
 
@@ -357,14 +356,10 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
         w = get_weights(B, sigma)
         if isinstance(response, list):  # Multi-tissue
             B_neg_sh = qbm.get_sh(B_neg_sph[:, 1], B_neg_sph[:, 2], max_order[0], coeffs=sh_coeff)
-            # b0 = [0*i for i in np.arange(1, len(response))]
-            # B_neg_sh = sp.linalg.block_diag(B_neg_sh, *b0)
             B_neg_sh = np.concatenate((B_neg_sh, np.zeros((B_neg_sh.shape[0], len(response)-1))), axis=1)
             l = l * (response[0].get_rh())[0, 0]
-            # B_C_sh = sp.linalg.block_diag(B_sh_list[0], *b0)
             B_C_sh = np.concatenate((B_sh_list[0], np.zeros((B_sh_list[0].shape[0], len(response)-1))), axis=1)
             C = np.concatenate((C, l*B_C_sh), axis=0)
-            # w = np.concatenate((w, np.zeros((w.shape[0], len(response)-1))), axis=1)
             print('Running SD')
             prev_fod = np.zeros(list(mask.shape) + [B_sh.shape[1]], dtype=np.float32)
             prev_fod[:, :, :, 0:B_sh_list[0].shape[1]] = sdeconv(response[0], data_file, mask_file, bvals_file, bvecs_file, max_order[0], sym=sym)
@@ -375,7 +370,6 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
             print('Running SD')
             prev_fod = sdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order, sym=sym)
         
-
     H = np.dot(C.T, C)
     H = H + 1e-3*np.eye(H.shape[0])
     fod = np.zeros(list(mask.shape) + [B_sh.shape[1]], dtype=np.float32)
@@ -485,7 +479,6 @@ def csdeconv_fit(data, fod, prev_fod, vox_list, fod_shape, data_shape, H, C, B, 
         w: weights matrix for asymmetric FOD fit.
         l: lambda for asymmetric FOD fit.
     '''
-
     fod = np.ctypeslib.as_array(fod).reshape(fod_shape)
     data = np.ctypeslib.as_array(data).reshape(data_shape)
     if sym is False:
@@ -493,39 +486,19 @@ def csdeconv_fit(data, fod, prev_fod, vox_list, fod_shape, data_shape, H, C, B, 
         neighs = np.array(list(itertools.product([-1, 0, 1], repeat=3)))
         neighs = np.delete(neighs, 13, 0)   # Remove [0, 0, 0]
 
-    # np.savetxt('/Users/matteob/Desktop/fslcourse_update/fsl_course_data/fdt1/subj1/H.txt',H)
-    # np.savetxt('/Users/matteob/Desktop/fslcourse_update/fsl_course_data/fdt1/subj1/C.txt',C)
     h = matrix(np.zeros(B.shape[0]))
     args = [matrix(H), 0, matrix(-B), h]
-    '''
-    P = sparse.csc_matrix(H)
-    q = np.zeros(H.shape[0])
-    A = sparse.csc_matrix(-B)
-    l = -np.inf*np.ones(len(np.zeros(B.shape[0])))
-    u = np.zeros(B.shape[0])
-
-    prob = osqp.OSQP()
-    prob.setup(P, q, A, l, u, alpha=1.0)
-    '''
+    
     for i, (x, y, z) in enumerate(zip(*vox_list)):
         s = data[x, y, z, :]
-        # if sym:
-        #    f = np.dot(-C.T, s)
         if not sym:
             fNeighs = prev_fod[x+neighs[:, 0], y+neighs[:, 1], z+neighs[:, 2]]
             n_fod = l * np.diag(np.dot(np.dot(B_neg, fNeighs.T), w))
             s = np.concatenate((s, n_fod))
-            # np.savetxt('/Users/matteob/Desktop/fslcourse_update/fsl_course_data/fdt1/subj1/fne.txt',fNeighs)
-            # f = np.dot(-C.T, np.concatenate((s, n_fod)))
         f = np.dot(-C.T, s)
         # Using cvxopt
-        # args = [matrix(H), matrix(f)]  # Enforce symmetry on H
-        # args.extend([matrix(-B), h])
         args[1] = matrix(f)
-        # np.savetxt('/Users/matteob/Desktop/fslcourse_update/fsl_course_data/fdt1/subj1/f.txt',f)
-        # np.savetxt('/Users/matteob/Desktop/fslcourse_update/fsl_course_data/fdt1/subj1/B.txt',B)
-        # np.savetxt('/Users/matteob/Desktop/fslcourse_update/fsl_course_data/fdt1/subj1/h_low.txt',h)
-
+        
         sol = qp(*args)
         if 'optimal' not in sol['status']:
             print('Solution not found')
@@ -534,10 +507,6 @@ def csdeconv_fit(data, fod, prev_fod, vox_list, fod_shape, data_shape, H, C, B, 
         if progqueue is not None and i > 0 and i % 100 == 0:
             progqueue.put(100)
 
-        '''
-        prob.update(Px=f)
-        res = prob.solve()
-        '''
 
 def predict(response, fod_file, mask_file, bvals_file, bvecs_file, max_order, sym=False, out_file=None):
     '''Predicted signal from CSD fit.

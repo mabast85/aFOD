@@ -4,7 +4,7 @@
 import numpy as np
 import nibabel as nib
 import os
-from qboot_v2.utils import math as qbm
+from aFOD.utils import math as qbm
 import scipy.optimize as opt
 
 

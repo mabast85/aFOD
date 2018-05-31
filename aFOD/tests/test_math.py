@@ -1,4 +1,4 @@
-from qboot_v2.utils import math as qbm
+from aFOD.utils import math as qbm
 import numpy as np
 
 

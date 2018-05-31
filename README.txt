@@ -23,8 +23,8 @@ or using pip.
 -------------------------------------------
 Tutorial
 -------------------------------------------
-A jupyter-notebook file is included in the repository:
-qboot_v2/tutorial/afod_tutorial.ipynb
+A jupyter-notebook (http://jupyter.org) file is included in the repository:
+aFOD/tutorial/afod_tutorial.ipynb
 
 explaining the different steps needed to estimate aFODs.
 
