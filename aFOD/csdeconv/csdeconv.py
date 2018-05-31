@@ -284,7 +284,7 @@ def sdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
 
 
 def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
-             sym=False, l=0.1, sigma=40, out_file=None):
+             prev_fod_file=None, sym=False, l=0.1, sigma=40, out_file=None):
     '''Constrained spherical deconvolution.
 
     Estimates symmetric or asymmetric voxel-wise FOD using constrained
@@ -301,6 +301,7 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
         bvals_file: string containing the path to the bvals file
         bvecs_file: string containing the path to the bvecs file
         max_order: list (for multi-tissue) or single maximum harmonic order.
+        prev_fod_file: string containing the path to the 4D nifti SH coefficients file.
         sym: if true, consider only even order symmetrics SH coefficients.
         l: lambda regularization factor for asymmetric CSD.
         sigma: cut-off neighbourhood angle for asymmetric CSD.
@@ -360,15 +361,21 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
             l = l * (response[0].get_rh())[0, 0]
             B_C_sh = np.concatenate((B_sh_list[0], np.zeros((B_sh_list[0].shape[0], len(response)-1))), axis=1)
             C = np.concatenate((C, l*B_C_sh), axis=0)
-            print('Running SD')
             prev_fod = np.zeros(list(mask.shape) + [B_sh.shape[1]], dtype=np.float32)
-            prev_fod[:, :, :, 0:B_sh_list[0].shape[1]] = sdeconv(response[0], data_file, mask_file, bvals_file, bvecs_file, max_order[0], sym=sym)
+            if prev_fod_file is not None:
+                prev_fod[:, :, :, 0:B_sh_list[0].shape[1]] = ((nib.load(prev_fod_file)).get_data())[:, :, :, 0:B_sh_list[0].shape[1]]
+            else:
+                print('Running SD')
+                prev_fod[:, :, :, 0:B_sh_list[0].shape[1]] = sdeconv(response[0], data_file, mask_file, bvals_file, bvecs_file, max_order[0], sym=sym)
         else:
             B_neg_sh = qbm.get_sh(B_neg_sph[:, 1], B_neg_sph[:, 2], max_order, coeffs=sh_coeff)
             l = l * (response.get_rh())[0, 0]
             C = np.concatenate((C, l*B_sh), axis=0)
-            print('Running SD')
-            prev_fod = sdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order, sym=sym)
+            if prev_fod_file is not None:
+                prev_fod = (nib.load(prev_fod_file)).get_data()
+            else:
+                print('Running SD')
+                prev_fod = sdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order, sym=sym)
         
     H = np.dot(C.T, C)
     H = H + 1e-3*np.eye(H.shape[0])
