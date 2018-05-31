@@ -18,7 +18,7 @@ Installation
 The package can be installed using the setup.py file provided by running:
 python setup.py install
 
-or using pip.
+or using pip. 
 
 -------------------------------------------
 Tutorial
