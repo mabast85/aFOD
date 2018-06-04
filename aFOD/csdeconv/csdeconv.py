@@ -296,6 +296,8 @@ def csdeconv(response, data_file, mask_file, bvals_file, bvecs_file, max_order,
 
     Args:
         response: list (for multi-tissue) or single response function object.
+                  The function assumes that the first reponse function in the
+                  list is always the white matter one
         data_file: string containing the path to the 4D nifti dMRI data file
         mask_file: string containing the path to the 3D nifti binary mask file
         bvals_file: string containing the path to the bvals file
